@@ -19,19 +19,20 @@ import net.corda.core.transactions.TransactionBuilder
 
 import com.trading.states.TradeState
 import net.corda.core.contracts.Command
+import net.corda.core.contracts.StateAndRef
 import net.corda.core.contracts.requireThat
+import net.corda.core.node.services.queryBy
 
 
 @InitiatingFlow
 @StartableByRPC
-class TradeInitiator(private val sellValue: Int,
-                private val buyValue: Int,
-                private val sellCurrency: String,
-                private val buyCurrency: String,
-                private val tradeRequestedParty: Party
-                ) : FlowLogic<SignedTransaction>() {
-
-
+class TradeInitiator(
+    private val sellValue: Int,
+    private val buyValue: Int,
+    private val sellCurrency: String,
+    private val buyCurrency: String,
+    private val tradeRequestedParty: Party
+) : FlowLogic<SignedTransaction>() {
 
     @Suspendable
     override fun call(): SignedTransaction {
@@ -41,27 +42,73 @@ class TradeInitiator(private val sellValue: Int,
         val tradeInitiator = ourIdentity
 
         //Stage 1
+        val tradeStateAndRefs = serviceHub.vaultService.queryBy<TradeState>().states
+        val inputStateAndRef = tradeStateAndRefs.filter {
+            (it.state.data.sellCurrency == buyCurrency) and
+                    (it.state.data.buyCurrency == sellCurrency) and
+                    (it.state.data.sellValue == buyValue) and
+                    (it.state.data.buyValue == sellValue) and
+                    (it.state.data.tradeStatus == "OrderPlaced")
+        }
 
-        val tradeState = TradeState(sellValue,buyValue,sellCurrency,buyCurrency,"OrderPlaced",tradeInitiator,tradeRequestedParty)
-        val txCommand =Command(TradeContract.Commands.CreateTrade(),tradeState.participants.map { it.owningKey })
 
-        val txBuilder = TransactionBuilder(notary)
-                                .addOutputState(tradeState, TradeContract.ID)
-                                .addCommand(txCommand)
+        var state: TradeState? = null
+        var input: StateAndRef<TradeState>? = null
+        var tradeState: TradeState? = null
+        var txCommand: Command<TradeContract.Commands.CreateTrade>? = null
+        var txCommand1: Command<TradeContract.Commands.CounterTrade>? = null
+        var txBuilder: TransactionBuilder? = null
+        if (inputStateAndRef.isNotEmpty()) {
+            println("-------------Trade Matched - Processing transaction-------------")
+            state = inputStateAndRef.first().state.data
+            input = inputStateAndRef.first()
+            tradeState =
+                TradeState(
+                    state.sellValue,
+                    state.buyValue,
+                    state.sellCurrency,
+                    state.buyCurrency,
+                    "OrderFilled",
+                    state.tradeInitiator,
+                    state.tradeReceiver
+                )
+            txCommand1 = Command(TradeContract.Commands.CounterTrade(), tradeState.participants.map { it.owningKey })
 
-        //Stage 2 - Verify that the transaction is valid
-        txBuilder.verify(serviceHub)
+            txBuilder = TransactionBuilder(notary)
+                .addInputState(input)
+                .addOutputState(tradeState, TradeContract.ID)
+                .addCommand(txCommand1)
+        } else {
+            println("-----------Creating New Trade---------------")
+            tradeState = TradeState(
+                sellValue,
+                buyValue,
+                sellCurrency,
+                buyCurrency,
+                "OrderPlaced",
+                ourIdentity,
+                tradeRequestedParty
+            )
+            txCommand = Command(TradeContract.Commands.CreateTrade(), tradeState.participants.map { it.owningKey })
+            txBuilder = TransactionBuilder(notary)
+                .addOutputState(tradeState, TradeContract.ID)
+                .addCommand(txCommand)
+        }
+
 
         //Stage 3 - Sign the transaction
         val partSignedTx = serviceHub.signInitialTransaction(txBuilder)
 
         // Stage 4 - Send the state to the counterparty, and receive it back with their signature
         val otherPartySession = initiateFlow(tradeRequestedParty)
-        val fullySignedTx = subFlow(CollectSignaturesFlow(partSignedTx, setOf(otherPartySession) ))
+        val fullySignedTx = subFlow(CollectSignaturesFlow(partSignedTx, setOf(otherPartySession)))
 
         // Stage 5 - Notarise and record the transaction in both parties' vaults
-        return subFlow(FinalityFlow(fullySignedTx, setOf(otherPartySession)
-        ))
+        return subFlow(
+            FinalityFlow(
+                fullySignedTx, setOf(otherPartySession)
+            )
+        )
     }
 }
 

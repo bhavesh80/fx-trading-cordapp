@@ -1,6 +1,4 @@
 
-m
-=contracts/src/test/kotlin/com/trading/contracts/StateTests.kt,5\e\5e497402a8d3e470c010a3b2c1c1f6c00d91647b
 F
 contracts/build.gradle,7\6\7659a0fec00cfd37d9c5b0f42fac69319d24b8cb
 :

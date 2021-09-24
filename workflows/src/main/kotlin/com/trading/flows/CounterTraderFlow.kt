@@ -52,16 +52,14 @@ class CounterTradeInitiator(
         val counterTradeInititor = ourIdentity
 
         //Stage 1
-
         val tradeStateAndRefs = serviceHub.vaultService.queryBy<TradeState>().states
-        println("Printing States   $tradeStateAndRefs")
         val inputStateAndRef = tradeStateAndRefs.filter {
             (it.state.data.sellCurrency == buyCurrency) and
                     (it.state.data.buyCurrency == sellCurrency) and
                     (it.state.data.sellValue == buyValue) and
-                    (it.state.data.buyValue == sellValue)
+                    (it.state.data.buyValue == sellValue) and
+                    (it.state.data.tradeStatus == "OrderPlaced")
         }
-        println("Printing States 2   $inputStateAndRef")
 
 
         var state: TradeState? = null
@@ -71,7 +69,7 @@ class CounterTradeInitiator(
         var txCommand1: Command<TradeContract.Commands.CounterTrade>? = null
         var txBuilder: TransactionBuilder? = null
         if (inputStateAndRef.isNotEmpty()) {
-            println("Trade Matched - Processing transaction")
+            println("-------------Trade Matched - Processing transaction-------------")
             state = inputStateAndRef.first().state.data
             input = inputStateAndRef.first()
             tradeState =
@@ -86,14 +84,22 @@ class CounterTradeInitiator(
                 )
             txCommand1 = Command(TradeContract.Commands.CounterTrade(), tradeState.participants.map { it.owningKey })
 
-        txBuilder = TransactionBuilder(notary)
-            .addInputState(input)
-            .addOutputState(tradeState, TradeContract.ID)
-            .addCommand(txCommand1)
-        }else{
-            println("Creating New Trade")
-            tradeState = TradeState(sellValue,buyValue,sellCurrency,buyCurrency,"OrderPlaced",ourIdentity,tradeRequestedParty)
-            txCommand =Command(TradeContract.Commands.CreateTrade(),tradeState.participants.map { it.owningKey })
+            txBuilder = TransactionBuilder(notary)
+                .addInputState(input)
+                .addOutputState(tradeState, TradeContract.ID)
+                .addCommand(txCommand1)
+        } else {
+            println("-------------Creating New Trade--------------")
+            tradeState = TradeState(
+                sellValue,
+                buyValue,
+                sellCurrency,
+                buyCurrency,
+                "OrderPlaced",
+                ourIdentity,
+                tradeRequestedParty
+            )
+            txCommand = Command(TradeContract.Commands.CreateTrade(), tradeState.participants.map { it.owningKey })
             txBuilder = TransactionBuilder(notary)
                 .addOutputState(tradeState, TradeContract.ID)
                 .addCommand(txCommand)

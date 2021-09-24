@@ -13,61 +13,41 @@ import kotlin.test.assertEquals
 
 class TradeFlowTests : AbstractFlowConfiguration() {
     @Test
-    fun `accept trade state between 2 parties`() {
-
-        val counterPartyName = counterParty.name.organisation
-        println("CounterParty $counterPartyName")
-
-        val createTrade = TradeInitiator(150, 100, "USD", "EUR", counterParty)
+    fun `PartyA add Trade 150 USD in exchange of 100 EUR, PartyB submit-Match & Fills the trade`() {
+        val createTrade = TradeInitiator(100, 150, "USD", "EUR", counterParty)
         initiatorNode.startFlow(createTrade).toCompletableFuture()
-
         mockNetwork.waitQuiescent()
 
         val queryCriteria = QueryCriteria.VaultQueryCriteria().withStatus(StateStatus.UNCONSUMED)
 
-        var stateA = initiatorNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states
+        var stateA = initiatorNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states.first { it.state.data.tradeStatus == "OrderPlaced" }.state.data
+        assertEquals(stateA.tradeStatus, "OrderPlaced")
 
-        val counterTrade = CounterTradeInitiator(100, 150, "EUR", "USD", initiatorParty)
+        val counterTrade = CounterTradeInitiator(150, 100, "EUR", "USD", initiatorParty)
         counterPartyNode.startFlow(counterTrade)
         mockNetwork.waitQuiescent()
-        var stateB = counterPartyNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states
-        println(stateB)
-//
-//        var stateA =
-//            initiatorNode.services.vaultService.queryBy(
-//                TradeState::class.java,
-//                queryCriteria
-//            ).states.first { it.state.data.tradeStatus == "OrderPlaced" }.state.data
-//        println(stateA)
-//        var stateB =
-//            counterPartyNode.services.vaultService.queryBy(
-//                TradeState::class.java,
-//                queryCriteria
-//            ).states.first { it.state.data.tradeStatus == "OrderPlaced" }.state.data
-//
-//        assertEquals(stateA, stateB, "Same state should be available in both nodes")
-//
-//
-////        //counter trade
-//        val counterTrade = CounterTradeInitiator(100, 150, "EUR", "USD", initiatorParty)
-//
-//        counterPartyNode.startFlow(counterTrade)
-//
-//        mockNetwork.waitQuiescent()
-//
-//        val stateASuccess =
-//            initiatorNode.services.vaultService.queryBy(
-//                TradeState::class.java,
-//                queryCriteria
-//            ).states.first { it.state.data.tradeStatus == "OrderFilled"}.state.data
-//        val stateBSuccess =
-//            counterPartyNode.services.vaultService.queryBy(
-//                TradeState::class.java,
-//                queryCriteria
-//            ).states.first { it.state.data.tradeStatus == "OrderFilled" }.state.data
-//
-//        assertEquals(stateASuccess, stateBSuccess, "Same state should be available in both nodes")
-//
-//        assertEquals(stateA.linearId, stateASuccess.linearId)
+
+
+        var stateB = counterPartyNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states.first { it.state.data.tradeStatus == "OrderFilled" }.state.data
+        assertEquals(stateB.tradeStatus, "OrderFilled")
+    }
+    @Test
+    fun `PartyB add 2 trade of 150 EUR in-exchange 100 USD ,PartyA submit-Match & Fills the trade`(){
+        val queryCriteria = QueryCriteria.VaultQueryCriteria().withStatus(StateStatus.UNCONSUMED)
+
+        val counterTrade = CounterTradeInitiator(150, 100, "EUR", "USD", initiatorParty)
+        counterPartyNode.startFlow(counterTrade).toCompletableFuture()
+        mockNetwork.waitQuiescent()
+
+        var stateB = counterPartyNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states.first { it.state.data.tradeStatus == "OrderPlaced" }.state.data
+        assertEquals(stateB.tradeStatus, "OrderPlaced")
+
+        val createTrade = TradeInitiator(100, 150, "USD", "EUR", counterParty)
+        initiatorNode.startFlow(createTrade).toCompletableFuture()
+        mockNetwork.waitQuiescent()
+
+        var stateA = initiatorNode.services.vaultService.queryBy(TradeState::class.java,queryCriteria).states.first { it.state.data.tradeStatus == "OrderFilled" }.state.data
+        assertEquals(stateA.tradeStatus, "OrderFilled")
+
     }
 }
